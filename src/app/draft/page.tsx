@@ -78,6 +78,23 @@ export default function DraftRoom() {
   const [mode, setMode] = useState<'select' | 'board'>('select');
   const boardRef = useRef<HTMLDivElement>(null);
 
+  // Load draft state on mount
+  useEffect(() => {
+    async function loadDraftState() {
+      try {
+        const res = await fetch('/api/draft');
+        const data = await res.json();
+        if (data.state && data.state.picks) {
+          setPicks(data.state.picks);
+          setCurrentPick(data.state.currentPick);
+        }
+      } catch (err) {
+        console.error('Error loading draft state:', err);
+      }
+    }
+    loadDraftState();
+  }, []);
+
   const draftedPlayers = picks.map(p => p.player);
   const availablePlayers = ADP_DATA.filter(p => !draftedPlayers.includes(p.name));
   const displayPlayers = filterPosition === 'all' 
@@ -116,12 +133,25 @@ export default function DraftRoom() {
     }
   };
 
-  // Get current team info
+  const handleReset = async () => {
+    if (!confirm('Start a new draft? This will clear all picks.')) return;
+    try {
+      await fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset' })
+      });
+      setPicks([]);
+      setCurrentPick(1);
+    } catch (err) {
+      console.error('Error resetting draft:', err);
+    }
+  };
+
   const currentTeam = `Team ${Math.ceil(currentPick / PICKS_PER_ROUND)}`;
   const round = Math.ceil(currentPick / PICKS_PER_ROUND);
   const pickInRound = ((currentPick - 1) % PICKS_PER_ROUND) + 1;
 
-  // Get picks for each team
   const getTeamPicks = (teamIndex: number) => {
     const teamNum = teamIndex + 1;
     return picks.filter((_, i) => {
@@ -142,6 +172,12 @@ export default function DraftRoom() {
           </div>
         </div>
         <div className="flex items-center gap-4">
+          <button 
+            onClick={handleReset}
+            className="px-3 py-1 text-sm bg-red-900/50 hover:bg-red-900 rounded text-red-300"
+          >
+            Reset Draft
+          </button>
           <div className="flex bg-zinc-800 rounded-lg p-1">
             <button
               onClick={() => setMode('select')}
@@ -336,7 +372,7 @@ export default function DraftRoom() {
                       >
                         {pick ? (
                           <div className="text-center">
-                            <div className="font-medium truncate w-full">{pick.player.split(' ')[0]}</div>
+                            <div className="font-medium truncate w-full">{pick.player}</div>
                             <div className="text-zinc-500 text-[10px]">{pick.position}</div>
                           </div>
                         ) : (
