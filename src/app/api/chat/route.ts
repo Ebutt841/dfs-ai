@@ -176,6 +176,7 @@ ALWAYS use the appropriate tool. Never make up ADP values or player names.`
     
     if (toolCalls.length > 0) {
       const results = [];
+      const toolResults: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
       
       for (const toolCall of toolCalls) {
         // Handle union type by checking if function property exists
@@ -183,41 +184,45 @@ ALWAYS use the appropriate tool. Never make up ADP values or player names.`
         
         const func = toolCall.function;
         const args = JSON.parse(func.arguments);
+        let resultContent = '';
         
         if (func.name === "get_top_salaries") {
           const players = await getTopSalaries(args.position, args.limit || 5);
+          resultContent = JSON.stringify(players);
           results.push({ tool: "get_top_salaries", result: players });
         } else if (func.name === "find_value_plays") {
           const players = await findValuePlaysTool(args.min_salary, args.max_salary, args.position);
+          resultContent = JSON.stringify(players);
           results.push({ tool: "find_value_plays", result: players });
         } else if (func.name === "bestball_analyze_pick") {
           const analysis = await analyzeBestBallPick(args.player_name, args.current_pick);
+          resultContent = analysis;
           results.push({ tool: "bestball_analyze_pick", result: analysis });
         } else if (func.name === "bestball_best_available") {
           const best = await getBestAvailableBestBall(args.position);
+          resultContent = best;
           results.push({ tool: "bestball_best_available", result: best });
         } else if (func.name === "bestball_steals") {
           const stealers = await getBestBallSteals();
+          resultContent = stealers;
           results.push({ tool: "bestball_steals", result: stealers });
         }
+        
+        // Add tool result message
+        toolResults.push({
+          role: "tool" as const,
+          content: resultContent,
+          tool_call_id: toolCall.id
+        });
       }
       
       // Get final response after function results
       const finalCompletion = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
-          { 
-            role: "system" as const, 
-            content: `You are a DFS expert. Use the function results below to answer the user's question.
-Provide specific recommendations with ADP values and analysis. Be helpful and conversational.`
-          },
+          { role: "system" as const, content: `You are a DFS expert. Use the function results below to answer the user's question. Provide specific recommendations with ADP values and analysis. Be helpful and conversational.` },
           { role: "user" as const, content: message },
-          ...(completion.choices[0]?.message?.content ? [{ role: "assistant" as const, content: completion.choices[0].message.content }] : []),
-          { 
-            role: "tool" as const, 
-            content: JSON.stringify(results), 
-            tool_call_id: toolCalls[0].id 
-          }
+          ...toolResults
         ],
         temperature: 0.7,
         max_tokens: 1500,
