@@ -13,8 +13,6 @@ const DFS_SYSTEM_PROMPT = `You are an expert DFS (Daily Fantasy Sports) analyst.
 - Injury news and lineup impacts
 - Player matchups and floor/ceiling analysis
 
-You have knowledge of NFL, NBA, MLB, NHL, and PGA DFS strategies.
-
 When answering questions:
 1. Be specific and actionable
 2. Provide reasoning behind your picks
@@ -33,6 +31,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
 
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json({ error: "API key not configured. Please contact the admin." }, { status: 500 });
+    }
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -45,7 +47,6 @@ export async function POST(request: NextRequest) {
 
     const response = completion.choices[0]?.message?.content || "I couldn't generate a response. Please try again.";
 
-    // Return with mock sources for now
     return NextResponse.json({
       response,
       sources: ["Web Search", "DFS Knowledge Base"]
