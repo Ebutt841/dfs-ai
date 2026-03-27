@@ -10,7 +10,7 @@ const apiKey = Buffer.from(encodedKey, 'base64').toString('utf-8');
 const openai = new OpenAI({ apiKey });
 
 // Tool definitions for function calling
-const tools = [
+const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
       model: "gpt-4o",
       messages: [
         { 
-          role: "system", 
+          role: "system" as const, 
           content: `You are a DFS expert with TWO modes of operation:
 
 1. DAILY DFS (salary-based): Use get_top_salaries and find_value_plays for questions about DraftKings/FanDuel slates with specific salary info.
@@ -163,7 +163,7 @@ For Best Ball questions, users will ask about:
 
 ALWAYS use the appropriate tool. Never make up ADP values or player names.`
         },
-        { role: "user", content: message }
+        { role: "user" as const, content: message }
       ],
       tools: tools,
       tool_choice: "auto",
@@ -178,21 +178,25 @@ ALWAYS use the appropriate tool. Never make up ADP values or player names.`
       const results = [];
       
       for (const toolCall of toolCalls) {
-        const args = JSON.parse(toolCall.function.arguments);
+        // Handle union type by checking if function property exists
+        if (!('function' in toolCall)) continue;
         
-        if (toolCall.function.name === "get_top_salaries") {
+        const func = toolCall.function;
+        const args = JSON.parse(func.arguments);
+        
+        if (func.name === "get_top_salaries") {
           const players = await getTopSalaries(args.position, args.limit || 5);
           results.push({ tool: "get_top_salaries", result: players });
-        } else if (toolCall.function.name === "find_value_plays") {
+        } else if (func.name === "find_value_plays") {
           const players = await findValuePlaysTool(args.min_salary, args.max_salary, args.position);
           results.push({ tool: "find_value_plays", result: players });
-        } else if (toolCall.function.name === "bestball_analyze_pick") {
+        } else if (func.name === "bestball_analyze_pick") {
           const analysis = await analyzeBestBallPick(args.player_name, args.current_pick);
           results.push({ tool: "bestball_analyze_pick", result: analysis });
-        } else if (toolCall.function.name === "bestball_best_available") {
+        } else if (func.name === "bestball_best_available") {
           const best = await getBestAvailableBestBall(args.position);
           results.push({ tool: "bestball_best_available", result: best });
-        } else if (toolCall.function.name === "bestball_steals") {
+        } else if (func.name === "bestball_steals") {
           const stealers = await getBestBallSteals();
           results.push({ tool: "bestball_steals", result: stealers });
         }
@@ -203,14 +207,14 @@ ALWAYS use the appropriate tool. Never make up ADP values or player names.`
         model: "gpt-4o",
         messages: [
           { 
-            role: "system", 
+            role: "system" as const, 
             content: `You are a DFS expert. Use the function results below to answer the user's question.
 Provide specific recommendations with ADP values and analysis. Be helpful and conversational.`
           },
-          { role: "user", content: message },
-          ...completion.choices[0].message.content ? [{ role: "assistant", content: completion.choices[0].message.content }] : [],
+          { role: "user" as const, content: message },
+          ...(completion.choices[0]?.message?.content ? [{ role: "assistant" as const, content: completion.choices[0].message.content }] : []),
           { 
-            role: "tool", 
+            role: "tool" as const, 
             content: JSON.stringify(results), 
             tool_call_id: toolCalls[0].id 
           }
