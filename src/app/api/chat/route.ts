@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getNFLSalaries, getPositionsBySalary, findValuePlays } from "@/lib/salaries";
+import { getADPData, analyzePick, getBestAvailable, getSteals } from "@/lib/bestball";
 
 // Base64 encoded key to bypass GitHub secret scanning
 const encodedKey = "c2stcHJvai14RFFqd2h6UDAxaG1XVDYzNkVaMG9sVUo4TE5pXzVSTUV3WXRiQld2eEFzdExWRlNDRjJCcERROF84V3NQY3ZneHAzcUFnZGs4c1QzQmxia0ZKLTIyVVVLaXk3SFRnMzktalZTaVhtZnNLRWVoZ0ZlTkJZNUNUTXVXNjh0cHdHU2x0OEtkRE9XRHllYndBUFFFN1dzUmJ1cVNxd0EK";
@@ -40,6 +41,46 @@ const tools = [
         required: ["min_salary", "max_salary"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "bestball_analyze_pick",
+      description: "Analyze if a player is a good pick in a Best Ball draft - tells you if it's a steal (good value) or reach (overpriced)",
+      parameters: {
+        type: "object",
+        properties: {
+          player_name: { type: "string", description: "The player's name to analyze" },
+          current_pick: { type: "number", description: "What pick number is this in the draft? (e.g., 1, 5, 12)" }
+        },
+        required: ["player_name", "current_pick"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "bestball_best_available",
+      description: "Get the best available players to draft at each position in Best Ball",
+      parameters: {
+        type: "object",
+        properties: {
+          position: { type: "string", enum: ["QB", "RB", "WR", "TE", "DST"], description: "Position to get best available players for" }
+        },
+        required: ["position"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "bestball_steals",
+      description: "Get the best value plays (steals) in a Best Ball draft - players going later than they should",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
   }
 ];
 
@@ -60,6 +101,42 @@ async function findValuePlaysTool(minSalary: number, maxSalary: number, position
   return players.map(p => `${p.name} (${p.position}, ${p.team}): $${p.salary.toLocaleString()} - ${p.salary < 5500 ? "⭐ GREAT VALUE" : p.salary < 6500 ? "💎 Good value" : "📈 Mid-tier"}`);
 }
 
+async function analyzeBestBallPick(playerName: string, currentPick: number) {
+  const players = getADPData();
+  const player = players.find(p => p.name.toLowerCase().includes(playerName.toLowerCase()));
+  
+  if (!player) {
+    return `Player "${playerName}" not found in ADP data. Try a different name.`;
+  }
+  
+  const analysis = analyzePick(player, currentPick);
+  
+  return `🎯 ${analysis.recommendation}
+
+📊 Analysis:
+- Current Pick: #${currentPick}
+- ADP (Average Draft Position): #${player.adp}
+- Projected Points: ${player.projectedPoints}
+- Tier: ${player.tier}
+
+${analysis.isSteal ? '✅ GRAB THIS PLAYER - Great value!' : analysis.isReach ? '❌ CONSIDER PASSING - Overpriced!' : '👍 Fair value at this spot'}`;
+}
+
+async function getBestAvailableBestBall(position: string) {
+  const best = getBestAvailable([], position, 5);
+  
+  return best.map(b => `${b.player.name} (${b.player.team}) - ADP: #${b.player.adp}, Proj: ${b.player.projectedPoints} pts - ${b.recommendation}`).join('\n');
+}
+
+async function getBestBallSteals() {
+  const stealers = getSteals([]);
+  
+  return `💎 BEST BALL STEALS (Draft these players later than ADP!):\n\n` + 
+    stealers.map(s => `${s.player.name} (${s.player.position}, ${s.player.team})
+   - ADP: #${s.player.adp}, Proj: ${s.player.projectedPoints} pts
+   - ${s.recommendation}`).join('\n\n');
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { message } = await request.json();
@@ -72,15 +149,19 @@ export async function POST(request: NextRequest) {
       messages: [
         { 
           role: "system", 
-          content: `You are a DFS expert with access to real NFL Week 1 2026 salary data from DraftKings.
-The available salary data has ${salaryData.draftkings.length} players.
+          content: `You are a DFS expert with TWO modes of operation:
 
-When users ask about:
-- "best players" or "top players" at a position → use get_top_salaries
-- "value plays", "cheap", "under $X" → use find_value_plays  
-- "best stacks" → analyze QB and their WR/TE stack options
+1. DAILY DFS (salary-based): Use get_top_salaries and find_value_plays for questions about DraftKings/FanDuel slates with specific salary info.
 
-ALWAYS use the tools to get actual salary data. Never make up player names or salaries.`
+2. BEST BALL DRAFT (ADP-based): Use bestball_analyze_pick, bestball_best_available, and bestball_steals for questions about Best Ball drafts.
+
+For Best Ball questions, users will ask about:
+- "should I take X at pick Y" → use bestball_analyze_pick
+- "best available at RB/WR" → use bestball_best_available  
+- "steals" or "value plays" → use bestball_steals
+- "who should I draft" → use bestball_best_available or bestball_steals
+
+ALWAYS use the appropriate tool. Never make up ADP values or player names.`
         },
         { role: "user", content: message }
       ],
@@ -105,6 +186,15 @@ ALWAYS use the tools to get actual salary data. Never make up player names or sa
         } else if (toolCall.function.name === "find_value_plays") {
           const players = await findValuePlaysTool(args.min_salary, args.max_salary, args.position);
           results.push({ tool: "find_value_plays", result: players });
+        } else if (toolCall.function.name === "bestball_analyze_pick") {
+          const analysis = await analyzeBestBallPick(args.player_name, args.current_pick);
+          results.push({ tool: "bestball_analyze_pick", result: analysis });
+        } else if (toolCall.function.name === "bestball_best_available") {
+          const best = await getBestAvailableBestBall(args.position);
+          results.push({ tool: "bestball_best_available", result: best });
+        } else if (toolCall.function.name === "bestball_steals") {
+          const stealers = await getBestBallSteals();
+          results.push({ tool: "bestball_steals", result: stealers });
         }
       }
       
@@ -115,7 +205,7 @@ ALWAYS use the tools to get actual salary data. Never make up player names or sa
           { 
             role: "system", 
             content: `You are a DFS expert. Use the function results below to answer the user's question.
-Provide specific recommendations with exact salaries.`
+Provide specific recommendations with ADP values and analysis. Be helpful and conversational.`
           },
           { role: "user", content: message },
           ...completion.choices[0].message.content ? [{ role: "assistant", content: completion.choices[0].message.content }] : [],
