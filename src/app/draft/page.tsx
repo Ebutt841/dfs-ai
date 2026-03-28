@@ -67,7 +67,7 @@ const ADP_DATA: Player[] = [
 const TEAMS = Array.from({ length: 12 }, (_, i) => `Team ${i + 1}`);
 const PICKS_PER_ROUND = 12;
 const TOTAL_ROUNDS = 15;
-const MY_TEAM = 'Team 1'; // Can be changed by user
+const MY_TEAM = 'Team 1';
 
 export default function DraftRoom() {
   const [currentPick, setCurrentPick] = useState(1);
@@ -112,7 +112,6 @@ export default function DraftRoom() {
     return players.sort((a, b) => a.adp - b.adp);
   }, [draftedPlayers, filterPosition, searchQuery]);
 
-  // Get best available at each position
   const bestAvailable = useMemo(() => {
     const positions = ['QB', 'RB', 'WR', 'TE', 'DST'];
     const result: Record<string, Player[]> = {};
@@ -127,7 +126,6 @@ export default function DraftRoom() {
     return result;
   }, [draftedPlayers]);
 
-  // Get my team's roster
   const myTeamPicks = useMemo(() => {
     return picks.filter(pick => {
       const pickTeamNum = Math.ceil(pick.pickNumber / PICKS_PER_ROUND);
@@ -135,7 +133,6 @@ export default function DraftRoom() {
     });
   }, [picks, myTeam]);
 
-  // Calculate position needs
   const positionNeeds = useMemo(() => {
     const needs: Record<string, number> = { QB: 1, RB: 3, WR: 3, TE: 1, DST: 1, FLEX: 2 };
     const positions = ['QB', 'RB', 'WR', 'TE', 'DST'];
@@ -163,7 +160,6 @@ export default function DraftRoom() {
     return result.sort((a, b) => (a.priority === 'HIGH' ? -1 : 1));
   }, [myTeamPicks]);
 
-  // Total projected points
   const totalProjected = useMemo(() => {
     return myTeamPicks.reduce((sum, pick) => {
       const player = ADP_DATA.find(p => p.name === pick.player);
@@ -227,6 +223,30 @@ export default function DraftRoom() {
     return picks.filter((_, i) => Math.ceil((i + 1) / PICKS_PER_ROUND) === teamNum);
   };
 
+  // Calculate team projected points
+  const getTeamProjected = (teamIndex: number) => {
+    const teamNum = teamIndex + 1;
+    const teamPicks = picks.filter(pick => {
+      const pickTeamNum = Math.ceil(pick.pickNumber / PICKS_PER_ROUND);
+      return pickTeamNum === teamNum;
+    });
+    return teamPicks.reduce((sum, pick) => {
+      const player = ADP_DATA.find(p => p.name === pick.player);
+      return sum + (player?.projectedPoints || 0);
+    }, 0);
+  };
+
+  const getPositionColor = (position: string) => {
+    switch (position) {
+      case 'DST': return 'bg-purple-700 text-purple-200';
+      case 'QB': return 'bg-red-700 text-red-200';
+      case 'RB': return 'bg-green-700 text-green-200';
+      case 'WR': return 'bg-orange-700 text-orange-200';
+      case 'TE': return 'bg-blue-700 text-blue-200';
+      default: return 'bg-zinc-600 text-zinc-200';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <header className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-900">
@@ -277,13 +297,11 @@ export default function DraftRoom() {
         <div className="w-72 border-r border-zinc-800 p-4 bg-zinc-900/50">
           <h3 className="font-bold text-lg mb-3">Your Roster</h3>
           
-          {/* Projected Points */}
           <div className="bg-zinc-800 rounded-lg p-3 mb-4">
             <p className="text-zinc-500 text-xs">Projected Points</p>
             <p className="text-2xl font-bold text-green-400">{totalProjected}</p>
           </div>
 
-          {/* Position Needs */}
           <div className="mb-4">
             <p className="text-zinc-500 text-xs mb-2">POSITION NEEDS</p>
             {positionNeeds.map(p => (
@@ -298,7 +316,6 @@ export default function DraftRoom() {
             ))}
           </div>
 
-          {/* My Picks */}
           <div>
             <p className="text-zinc-500 text-xs mb-2">YOUR PICKS</p>
             <div className="space-y-1">
@@ -319,7 +336,6 @@ export default function DraftRoom() {
         <div className="flex-1">
           {mode === 'select' && (
             <div className="p-4">
-              {/* My Turn Banner */}
               {isMyTurn && !selectedTeam && !showAnalysis && (
                 <div className="bg-gradient-to-r from-green-900/50 to-blue-900/50 rounded-xl p-4 mb-4 border border-green-500/30">
                   <div className="flex items-center justify-between">
@@ -395,7 +411,6 @@ export default function DraftRoom() {
                     </div>
                   </div>
 
-                  {/* Search */}
                   <input
                     type="text"
                     placeholder="Search player name..."
@@ -404,7 +419,6 @@ export default function DraftRoom() {
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 mb-4 text-white"
                   />
 
-                  {/* Best Available Tips */}
                   <div className="bg-zinc-800/50 rounded-lg p-3 mb-4">
                     <p className="text-zinc-500 text-xs mb-2">BEST AVAILABLE</p>
                     <div className="grid grid-cols-5 gap-2">
@@ -495,49 +509,107 @@ export default function DraftRoom() {
             </div>
           )}
 
+          {/* FULL DRAFT BOARD VIEW */}
           {mode === 'board' && (
-            <div className="p-2 overflow-auto">
-              <div className="grid grid-cols-12 gap-1 min-w-[1200px]">
-                <div className="col-span-1"></div>
-                {Array.from({ length: TOTAL_ROUNDS }, (_, i) => (
-                  <div key={i} className="text-center text-xs text-zinc-500 py-1">R{i + 1}</div>
-                ))}
+            <div className="p-4 overflow-auto">
+              {/* Current Pick Banner */}
+              <div className="flex items-center justify-between bg-zinc-800 rounded-lg p-3 mb-4">
+                <div className="flex items-center gap-4">
+                  <div>
+                    <span className="text-zinc-500 text-sm">Current Pick</span>
+                    <p className="text-2xl font-bold text-yellow-400">#{currentPick}</p>
+                  </div>
+                  <div>
+                    <span className="text-zinc-500 text-sm">Round</span>
+                    <p className="text-xl font-bold text-white">{round}</p>
+                  </div>
+                  <div>
+                    <span className="text-zinc-500 text-sm">On Clock</span>
+                    <p className="text-xl font-bold text-green-400">{currentTeam}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-zinc-500 text-sm">Your Team</span>
+                  <p className="text-xl font-bold text-green-400">{myTeam} ★</p>
+                </div>
+              </div>
 
+              {/* Main Board Grid */}
+              <div className="grid" style={{ 
+                gridTemplateColumns: `120px repeat(${TOTAL_ROUNDS}, minmax(90px, 1fr)) 100px`,
+                gap: '2px'
+              }}>
+                {/* Header Row */}
+                <div className="bg-zinc-800 p-2 font-bold text-sm text-zinc-300">Team</div>
+                {Array.from({ length: TOTAL_ROUNDS }, (_, i) => (
+                  <div key={i} className="bg-zinc-800 p-2 text-center text-xs font-bold text-zinc-400">R{i + 1}</div>
+                ))}
+                <div className="bg-zinc-800 p-2 text-center text-xs font-bold text-zinc-400">Proj Pts</div>
+
+                {/* Team Rows */}
                 {TEAMS.map((team, teamIndex) => {
                   const isCurrentTeam = team === currentTeam;
                   const isMyTeam = team === myTeam;
-                  
+                  const teamProjected = getTeamProjected(teamIndex);
+
                   return (
-                    <div key={team} className="contents">
-                      <div className={`p-2 flex items-center text-xs font-medium ${
-                        isMyTeam ? 'bg-green-900/30 text-green-400' : isCurrentTeam ? 'bg-yellow-900/30 text-yellow-400' : 'bg-zinc-800'
+                    <>
+                      {/* Team Header Cell */}
+                      <div className={`p-2 flex items-center justify-between text-sm font-medium ${
+                        isMyTeam ? 'bg-green-900/40 border-l-2 border-green-500' : 
+                        isCurrentTeam ? 'bg-yellow-900/40 border-l-2 border-yellow-500' : 'bg-zinc-800'
                       }`}>
-                        {team.replace('Team ', 'T')}
-                        {isMyTeam && ' ★'}
+                        <div>
+                          <span className={isMyTeam ? 'text-green-400' : isCurrentTeam ? 'text-yellow-400' : 'text-white'}>
+                            {team.replace('Team ', 'T')}
+                          </span>
+                          {isMyTeam && <span className="text-xs text-green-500 ml-1">★ YOU</span>}
+                          {isCurrentTeam && <span className="text-xs text-yellow-500 ml-1">ON CLOCK</span>}
+                        </div>
                       </div>
 
+                      {/* Pick Cells */}
                       {Array.from({ length: TOTAL_ROUNDS }, (_, roundIndex) => {
                         const pickNum = (roundIndex * 12) + teamIndex + 1;
                         const pick = picks.find(p => p.pickNumber === pickNum);
+                        const isCurrentPick = pickNum === currentPick;
                         
                         return (
                           <div 
                             key={roundIndex}
-                            className={`p-1 flex items-center justify-center text-xs min-h-[40px] ${
-                              pick ? 'bg-green-900/30' : isCurrentTeam && pickNum === currentPick ? 'bg-yellow-900/50 animate-pulse' : 'bg-zinc-900'
+                            className={`p-1.5 min-h-[50px] flex flex-col justify-center ${
+                              pick ? 'bg-green-900/20' : 
+                              isCurrentPick ? 'bg-yellow-900/40 animate-pulse' : 'bg-zinc-900'
                             }`}
                           >
                             {pick ? (
-                              <div className="text-center">
-                                <div className="font-medium truncate w-full text-[10px]">{pick.player.split(' ').slice(-1)[0]}</div>
+                              <div className="text-xs">
+                                <div className="font-medium truncate text-white">{pick.player}</div>
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  <span className={`text-[10px] px-1 rounded ${getPositionColor(pick.position)}`}>
+                                    {pick.position}
+                                  </span>
+                                  <span className="text-zinc-500">{pick.team}</span>
+                                </div>
                               </div>
                             ) : (
-                              <span className="text-zinc-700">{pickNum}</span>
+                              <div className="text-center">
+                                <span className="text-zinc-600 text-lg">·</span>
+                              </div>
                             )}
                           </div>
                         );
                       })}
-                    </div>
+
+                      {/* Projected Points Cell */}
+                      <div className={`p-2 flex items-center justify-center text-sm font-bold ${
+                        isMyTeam ? 'bg-green-900/40' : isCurrentTeam ? 'bg-yellow-900/40' : 'bg-zinc-800'
+                      }`}>
+                        <span className={isMyTeam ? 'text-green-400' : isCurrentTeam ? 'text-yellow-400' : 'text-zinc-300'}>
+                          {teamProjected > 0 ? teamProjected : '—'}
+                        </span>
+                      </div>
+                    </>
                   );
                 })}
               </div>
