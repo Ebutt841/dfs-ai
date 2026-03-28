@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 
 // In production, store in database (Postgres, Supabase, etc.)
-// For now, we'll log to console and return success
-let waitlist: string[] = [];
+// For now, store in memory and expose via admin endpoint
+let waitlist: { email: string; joinedAt: string }[] = [];
 
 export async function POST(request: Request) {
   try {
@@ -13,14 +13,17 @@ export async function POST(request: Request) {
     }
 
     // Check if already on list
-    if (waitlist.includes(email)) {
+    const existing = waitlist.find(w => w.email === email);
+    if (existing) {
       return NextResponse.json({ message: 'Already on waitlist!' }, { status: 200 });
     }
 
     // Add to waitlist
-    waitlist.push(email);
+    waitlist.push({
+      email,
+      joinedAt: new Date().toISOString()
+    });
     
-    // Log for now (replace with database in production)
     console.log('📧 New waitlist signup:', email);
     console.log('📊 Total waitlist:', waitlist.length);
 
@@ -37,7 +40,7 @@ export async function POST(request: Request) {
 
 export async function GET() {
   return NextResponse.json({ 
-    count: waitlist.length,
-    message: 'Use POST to add email to waitlist'
+    emails: waitlist.map(w => w.email),
+    count: waitlist.length
   });
 }
